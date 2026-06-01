@@ -1,3 +1,4 @@
+#include <Arduino.h>
 /*
  * PROJECTO LI-FI PROGRESSIVO - ESP32 EMISSOR (BANCADA UFF)
  * * Descrição: Atua como um "Media Converter" de alta velocidade.

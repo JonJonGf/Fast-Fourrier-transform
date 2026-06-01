@@ -1,3 +1,4 @@
+#include <Arduino.h>
 /*
  * PROJETO LI-FI PROGRESSIVO - ESP32 RECEPTOR (BANCADA UFF)
  * Descrição: Captura os dados digitais do fotorreceptor via UART2 (RX2),

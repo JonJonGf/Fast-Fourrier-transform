@@ -7,7 +7,7 @@ import serial
 # ==========================================
 # CONFIGURAÇÕES DO PROJETO
 # ==========================================
-IMG_PATH = "logo_uff.png"      # Substitua pelo nome ou caminho da sua imagem
+IMG_PATH = "vaspinho"      # Substitua pelo nome ou caminho da sua imagem
 BIN_PATH = "dados_fourier.bin"  # Nome do arquivo binário que será gerado
 PORTA_COM = "COM3"              # Mude para a porta COM do seu ESP32 (ex: COM3, COM4 ou /dev/ttyUSB0 no Linux)
 BAUD_RATE = 115200
