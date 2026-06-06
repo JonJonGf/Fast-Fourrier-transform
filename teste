@@ -1,0 +1,29 @@
+import cv2
+import numpy as np
+import pywt  # A biblioteca Wavelet
+
+# 1. Carrega a imagem em escala de cinza (pode ser o seu Vaspinho)
+img = cv2.imread("vaspinho.png", cv2.IMREAD_GRAYSCALE)
+
+# 2. Aplica a Transformada Wavelet Discreta 2D (DWT2)
+# Usando a ondleta 'haar'
+coeffs = pywt.dwt2(img, 'haar')
+
+# A biblioteca já te cospe os 4 quadrantes separados magicamente:
+# LL = Aproximação (Baixas frequências)
+# LH, HL, HH = Detalhes (Altas frequências horizontais, verticais e diagonais)
+LL, (LH, HL, HH) = coeffs
+
+# 3. Para você ver a mágica na tela:
+# Como os valores dos quadrantes de detalhe podem ser negativos ou flutuantes,
+# a gente normaliza para exibir como imagem (0 a 255)
+LL_vis = np.uint8(cv2.normalize(LL, None, 0, 255, cv2.NORM_MINMAX))
+LH_vis = np.uint8(cv2.normalize(LH, None, 0, 255, cv2.NORM_MINMAX))
+
+# Exibe a miniatura perfeita (Aproximação)
+cv2.imshow("Quadrante LL - Baixas Frequencias", LL_vis)
+# Exibe as bordas horizontais encontradas
+cv2.imshow("Quadrante LH - Detalhes Horizontais", LH_vis)
+
+cv2.waitKey(0)
+cv2.destroyAllWindows()

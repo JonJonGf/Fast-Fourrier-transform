@@ -1,0 +1,89 @@
+import cv2
+import numpy as np
+import struct
+import time
+import serial
+import pywt  # Certifique-se de ter instalado com: pip install PyWavelets
+
+# ==========================================
+# CONFIGURAÇÕES DO PROJETO
+# ==========================================
+IMG_PATH = "vaspinho.png"        # Substitua pelo nome ou caminho da sua imagem
+BIN_PATH = "dados_wavelet.bin"   # Nome do novo arquivo binário Wavelet
+PORTA_COM = "COM3"                # Porta COM do seu ESP32
+BAUD_RATE = 115200
+
+def gerar_e_enviar_wavelet():
+    # --------------------------------------
+    # 1. PROCESSAMENTO DA IMAGEM
+    # --------------------------------------
+    img = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        print(f"Erro: Não foi possível encontrar a imagem em '{IMG_PATH}'")
+        return
+    
+    # Resolução estática de 64x64 pixels
+    img_resized = cv2.resize(img, (64, 64))
+    
+    buffer_total = bytearray()
+    
+    # Cabeçalho de sincronismo de 4 bytes por linha
+    sync_bytes = bytes([0xAA, 0xBB, 0xCC, 0xDD])
+    
+    print("Processando linhas da imagem via Wavelet 1D (Haar)...")
+    for i in range(64):
+        linha = img_resized[i, :]
+        
+        # Executa a Transformada Wavelet Discreta 1D na linha
+        # cA = Aproximação (32 coeficientes) | cD = Detalhes (32 coeficientes)
+        cA, cD = pywt.dwt(linha, 'haar')
+        
+        # Garante que os dados sejam float32 (4 bytes por termo)
+        cA = cA.astype(np.float32)
+        cD = cD.astype(np.float32)
+        
+        # Empacota os dados em binário (padrão Little-Endian '<')
+        # 32f: 32 floats de aproximação | 32f: 32 floats de detalhes
+        # Total de dados = 64 floats * 4 bytes = 256 bytes
+        dados_sinal = struct.pack('<32f32f', *cA, *cD)
+        
+        # Monta o frame final da linha: Sync (4 bytes) + Dados (256 bytes) = 260 bytes
+        frame_linha = sync_bytes + dados_sinal
+        buffer_total.extend(frame_linha)
+
+    # --------------------------------------
+    # 2. SALVAMENTO DO ARQUIVO BINÁRIO (.BIN)
+    # --------------------------------------
+    with open(BIN_PATH, "wb") as f:
+        f.write(buffer_total)
+    
+    print(f"\nMatemática dos Bytes da Wavelet:")
+    print(f"-> Cada linha ocupa: 4 bytes (Sync) + 128 bytes (cA) + 128 bytes (cD) = 260 bytes")
+    print(f"-> Arquivo binário Wavelet salvo: '{BIN_PATH}' ({len(buffer_total)} bytes)")
+    print(f"-> Economia: Este arquivo ficou com 16.640 bytes (O do Fourier tinha 26.112 bytes!)")
+
+    # --------------------------------------
+    # 3. TRANSMISSÃO SERIAL VIA USB PARA O ESP32
+    # --------------------------------------
+    try:
+        print(f"\nAbrindo conexão com o ESP32 na porta {PORTA_COM}...")
+        ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2)
+        time.sleep(2) 
+        
+        print(f"Transmitindo payload óptico Wavelet para a bancada ({len(buffer_total)} bytes)...")
+        start_time = time.time()
+        
+        ser.write(buffer_total)
+        ser.flush() 
+        
+        end_time = time.time()
+        print(f"Transmissão concluída em {end_time - start_time:.2f} segundos!")
+        ser.close()
+        
+    except serial.SerialException:
+        print("\n[Nota] ESP32 desconectado ou porta COM ocupada. O arquivo binário foi gerado localmente com sucesso.")
+    except Exception as e:
+        print(f"\nOcorreu um erro inesperado na serial: {e}")
+
+if __name__ == "__main__":
+    gerar_e_enviar_wavelet()
