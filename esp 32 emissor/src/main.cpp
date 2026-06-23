@@ -3,13 +3,13 @@
 #define RX_DUMMY_PIN 16  
 void setup() {
   Serial.begin(9600);
-  Serial.setRxBufferSize(4096); 
+  Serial.setRxBufferSize(1024); 
   pinMode(TX_LASER_PIN, OUTPUT);
   digitalWrite(TX_LASER_PIN, HIGH); 
   delay(5000); 
   digitalWrite(TX_LASER_PIN, LOW); 
   Serial2.begin(9600, SERIAL_8N1, RX_DUMMY_PIN, TX_LASER_PIN, true);
-  Serial2.setTxBufferSize(4096); 
+  Serial2.setTxBufferSize(1024); 
 }
 void loop() {
   while (Serial.available() > 0) {
