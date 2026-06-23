@@ -6,100 +6,97 @@ import serial
 # ==========================================
 # CONFIGURAÇÕES DO PROJETO RECEPTOR
 # ==========================================
-PORTA_COM = "COM21"  # Mude para a porta COM do seu ESP32 RECEPTOR (ex: COM4, COM5)
-BAUD_RATE = 115200
+PORTA_COM = "COM21"  # Mude para a porta COM do seu ESP32 RECEPTOR
+BAUD_RATE = 9600     # CALIBRADO PARA 9600 BAUD
 
-def rodar_receptor_lifi():
+def rodar_receptor_lifi_silencioso():
     try:
-        # Abre a porta serial conectada ao ESP32 Receptor
-        ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=1)
-        print(f"Conectado ao ESP Receptor na porta {PORTA_COM}.")
-        print("Aguardando alinhamento do laser e início dos dados...")
+        # TIMEOUT EM 2.0 SEGUNDOS: Essencial para a velocidade de 9600 baud
+        ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2.0)
+        print(f"Conectado ao ESP Receptor na porta {PORTA_COM} a 9600 baud.")
+        print("Aguardando pacotes... O terminal só responderá ao sinal do laser.\n")
     except Exception as e:
         print(f"Erro ao abrir a porta serial {PORTA_COM}: {e}")
         return
 
-    # Matriz preta de 64x64 que vai receber os pixels reconstruídos
+    # Buffer de imagem na RAM
     imagem_reconstruida = np.zeros((64, 64), dtype=np.uint8)
-    
-    # Padrão de sincronismo que define o início de cada linha
-    SYNC_PATTERN = b'\xAA\xBB\xCC\xDD'
-    
-    # Configura a janela de exibição do OpenCV em tamanho expandido para melhor visualização
-    cv2.namedWindow("UFF Li-Fi - Sintese Inversa de Fourier", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("UFF Li-Fi - Sintese Inversa de Fourier", 450, 450)
-
     linha_atual = 0
 
     try:
-        while True:
-            # Varre o fluxo de bytes procurando pelo primeiro byte de sincronismo (0xAA)
-            if ser.read(1) == b'\xAA':
-                # Se achou, checa em sequência os próximos bytes do cabeçalho
-                if ser.read(1) == b'\xBB':
-                    if ser.read(1) == b'\xCC':
-                        if ser.read(1) == b'\xDD':
+        while linha_atual < 64:
+            # Escuta o primeiro byte
+            b1 = ser.read(1)
+            if not b1:
+                continue # Fica em standby silencioso
+
+            # Se detectar o início do cabeçalho mágico
+            if b1 == b'\xAA':
+                # Só acusa atividade no terminal quando o sincronismo começar
+                print(f"[SINAL] Captado início da linha [{linha_atual + 1}/64]. Sincronizando...", end="")
+                
+                b2 = ser.read(1)
+                if b2 == b'\xBB':
+                    b3 = ser.read(1)
+                    if b3 == b'\xCC':
+                        b4 = ser.read(1)
+                        if b4 == b'\xDD':
+                            print(" [OK]")
                             
-                            # Cabeçalho validado! Lê os próximos 404 bytes de dados de sinais (101 floats)
+                            # Força a leitura dos 404 bytes lentos da FFT
                             dados_linha = ser.read(404)
                             if len(dados_linha) < 404:
-                                continue # Ignora frames corrompidos/incompletos
+                                print(f"  └─► [ERRO] Timeout! Vieram apenas {len(dados_linha)} bytes. Linha descartada.")
+                                continue
                             
-                            # Desempacota o payload binário de ponto flutuante (Little-Endian '<')
+                            # Desempacota o payload binário
                             payload = struct.unpack('<f50f50f', dados_linha)
-                            
                             dc_component = payload[0]
                             amplitudes = np.array(payload[1:51])
                             fases = np.array(payload[51:101])
                             
-                            # --------------------------------------
-                            # RECONSTRUÇÃO DO ESPECTRO DISCRETO (64 PONTOS)
-                            # --------------------------------------
+                            # Reconstrução com simetria hermitiana
                             fft_reconstruida = np.zeros(64, dtype=complex)
-                            
-                            # Aloca a componente DC
                             fft_reconstruida[0] = dc_component
-                            
-                            # Aloca as 50 frequências espaciais enviadas pelo laser (Forma Polar: A * e^(j*fase))
                             fft_reconstruida[1:51] = amplitudes * np.exp(1j * fases)
-                            
-                            # Preenche as componentes espaciais restantes (frequências negativas conjugadas)
-                            # utilizando a propriedade de simetria hermitiana de sinais reais
                             fft_reconstruida[51:64] = np.conj(fft_reconstruida[13:0:-1])
                             
-                            # --------------------------------------
-                            # SÍNTESE INVERSA (DOMÍNIO DO ESPAÇO)
-                            # --------------------------------------
-                            # Executa a IFFT para transformar o espectro de volta em uma linha de pixels
+                            # Processa a IFFT para voltar ao domínio do espaço (pixels)
                             sinal_reconstruido = np.fft.ifft(fft_reconstruida)
-                            
-                            # Extrai a parte real, filtra ruídos numéricos e limita entre 0 e 255
                             linha_pixels = np.real(sinal_reconstruido)
                             linha_pixels = np.clip(linha_pixels, 0, 255).astype(np.uint8)
                             
-                            # Insere a linha processada na matriz da imagem final
+                            # Guarda temporariamente na matriz da imagem
                             imagem_reconstruida[linha_atual, :] = linha_pixels
-                            
-                            # Atualiza a janela gráfica com a linha recém-chegada
-                            cv2.imshow("UFF Li-Fi - Sintese Inversa de Fourier", imagem_reconstruida)
-                            cv2.waitKey(1) # Atualiza o frame de vídeo do OpenCV
-                            
-                            print(f"Linha {linha_atual:02d} processada e renderizada.")
-                            
-                            # Incrementa e rotaciona o contador de linhas de 0 a 63
-                            linha_atual = (linha_atual + 1) % 64
+                            linha_atual += 1
+                        else:
+                            print(f" [FALHOU] Byte 4 incorreto: {b4.hex()}")
+                    else:
+                        print(f" [FALHOU] Byte 3 incorreto: {b3.hex()}")
+                else:
+                    print(f" [FALHOU] Byte 2 incorreto: {b2.hex()}")
 
-            # Se o usuário fechar a janela do OpenCV clicando no 'X', finaliza o programa
-            if cv2.getWindowProperty("UFF Li-Fi - Sintese Inversa de Fourier", cv2.WND_PROP_VISIBLE) < 1:
-                print("Janela gráfica fechada pelo usuário.")
-                break
+        # ==================================================
+        # EXIBIÇÃO EM BLOCO DA IMAGEM FINAL
+        # ==================================================
+        print("\n==================================================")
+        print("   [FINALIZADO] Todas as 64 linhas na memória!    ")
+        print("==================================================")
+        print("Abrindo janela gráfica do Vaspinho...")
+        
+        cv2.namedWindow("UFF Li-Fi - Imagem Final Reconstruida", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("UFF Li-Fi - Imagem Final Reconstruida", 450, 450)
+        cv2.imshow("UFF Li-Fi - Imagem Final Reconstruida", imagem_reconstruida)
+        
+        print("[DICA] Clique na janela da imagem e aperte qualquer tecla para encerrar.")
+        cv2.waitKey(0) # Congela a imagem na tela até uma tecla ser pressionada
 
     except KeyboardInterrupt:
-        print("\nInterrupção manual detectada.")
+        print("\nInterrupção manual.")
     finally:
         ser.close()
         cv2.destroyAllWindows()
-        print("Porta serial fechada e ambiente limpo.")
+        print("Porta serial fechada com segurança.")
 
 if __name__ == "__main__":
-    rodar_receptor_lifi()
+    rodar_receptor_lifi_silencioso()

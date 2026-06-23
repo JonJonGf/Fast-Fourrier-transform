@@ -1,29 +1,38 @@
 #include <Arduino.h>
+/*
+ * PROJETO LI-FI PROGRESSIVO - ESP32 EMISSOR (BANCADA UFF)
+ * Velocidade: 9600 baud (Imunidade a tempo de subida RC)
+ * Lógica: Invertida (Repouso = Laser Apagado)
+ */
 
 #define TX_LASER_PIN 17 
 #define RX_DUMMY_PIN 16  
 
 void setup() {
-  Serial.begin(115200);
+  // Configura a USB com o PC 1 para 9600 baud
+  Serial.begin(9600);
   
   pinMode(TX_LASER_PIN, OUTPUT);
   
-  // 1. Acende o laser por 2 segundos para vocês alinharem a mira
+  // MODO ALINHAMENTO: Laser aceso por 5 segundos para mirar
   digitalWrite(TX_LASER_PIN, HIGH); 
-  delay(2000); 
+  Serial.println("==================================================");
+  Serial.println("  [EMISSOR 9600] MODO ALINHAMENTO: LASER ACESO (5s)");
+  Serial.println("==================================================");
+  delay(5000); 
   
-  // 2. Apaga o laser
+  // Apaga o laser e passa o controle para o hardware da Serial2
   digitalWrite(TX_LASER_PIN, LOW); 
   
-  // 3. O SEGREDO: O 5º parâmetro (true) ativa a inversão de hardware da UART.
-  // Agora, o estado de repouso (Idle) passa a ser LOW (Laser desligado!)
-  Serial2.begin(115200, SERIAL_8N1, RX_DUMMY_PIN, TX_LASER_PIN,true);
+  // Inicializa a linha óptica em 9600 baud com lógica invertida (true)
+  Serial2.begin(9600, SERIAL_8N1, RX_DUMMY_PIN, TX_LASER_PIN, true);
+  Serial.println("[OK] Transmissão ativa a 9600 baud. Laser em espera...");
+  Serial.println("==================================================");
 }
 
 void loop() {
-  if (Serial.available() > 0) {
-    while (Serial.available() > 0) {
-      Serial2.write(Serial.read());
-    }
-  } 
+  // Ponte transparente: lê o Python (USB) e joga no Laser
+  while (Serial.available() > 0) {
+    Serial2.write(Serial.read());
+  }
 }
