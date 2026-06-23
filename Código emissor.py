@@ -62,7 +62,7 @@ def rodar_emissor_lifi():
     try:
         print(f"[USB] Abrindo conexão com o ESP32 Emissor na porta {PORTA_COM}...")
         ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2)
-        time.sleep(2) # Aguarda o reset de boot automático da placa
+        time.sleep(10) # Aguarda o reset de boot automático da placa
         
         print("\n==================================================")
         print("      INICIANDO TRANSMISSÃO ÓPTICA (9600 BAUD)    ")
