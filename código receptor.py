@@ -4,10 +4,10 @@ import struct
 import serial
 
 # ==========================================
-# CONFIGURAÇÕES DO PROJETO RECEPTOR (57600 BAUD)
+# CONFIGURAÇÕES DO PROJETO RECEPTOR (19200 BAUD)
 # ==========================================
 PORTA_COM = "COM4"  # Confirme a sua porta COM ativa
-BAUD_RATE = 57600     
+BAUD_RATE = 19200     
 
 def rodar_receptor_lifi_bloco_id():
     try:
