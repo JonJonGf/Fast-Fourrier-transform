@@ -6,37 +6,43 @@ import serial
 # ==========================================
 # CONFIGURAÇÕES DO PROJETO RECEPTOR (9600 BAUD)
 # ==========================================
-PORTA_COM = "COM21"  # Confirme a porta COM do seu ESP32 Receptor
-BAUD_RATE = 9600     # Casado perfeitamente com os ESPs
+PORTA_COM = "COM21"  
+BAUD_RATE = 9600     
 
-def rodar_receptor_lifi():
+def rodar_receptor_lifi_streaming():
     try:
-        # TIMEOUT EM 2.0 SEGUNDOS: Essencial para a velocidade de 9600 baud.
-        # Uma linha de 408 bytes demora cerca de 425 milissegundos para cruzar o laser!
         ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2.0)
         print("==================================================")
-        print("   UFF Li-Fi RECEPTOR - SÍNTESE INVERSA DE FOURIER")
+        print("   UFF Li-Fi RECEPTOR - VIDEO STREAMING EM TEMPO REAL")
         print("==================================================")
         print(f"[OK] Conectado na porta {PORTA_COM} a {BAUD_RATE} baud.")
-        print("[INFO] Aguardando os pulsos do laser para iniciar a captura...\n")
+        
+        # Limpa o lixo eletrônico gerado durante os 5 segundos de mira fixa
+        ser.reset_input_buffer()
+        print("[INFO] Buffer limpo. Pronto para desenhar na tela...\n")
     except Exception as e:
         print(f"[ERRO] Não foi possível abrir a porta {PORTA_COM}: {e}")
         return
 
-    # Matriz na memória RAM que vai acumular as 64 linhas da imagem (64x64 pixels)
+    # Inicializa a matriz preta 64x64. Linhas perdidas ficarão pretas (em branco)
     imagem_reconstruida = np.zeros((64, 64), dtype=np.uint8)
-    linha_atual = 0
+    
+    # Configura a janela do OpenCV em modo contínuo
+    cv2.namedWindow("UFF Li-Fi - Streaming de Fourier", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("UFF Li-Fi - Streaming de Fourier", 450, 450)
+    cv2.imshow("UFF Li-Fi - Streaming de Fourier", imagem_reconstruida)
+    cv2.waitKey(1)
+
+    print("[STREAM] Monitorando feixe óptico. Atividade abaixo:")
 
     try:
-        while linha_atual < 64:
-            # Lê o primeiro byte do fluxo buscando o início do cabeçalho
+        while True:
+            # Busca o byte inicial do cabeçalho
             b1 = ser.read(1)
             if not b1:
-                continue  # Standby silencioso caso o laser pare de transmitir temporariamente
+                continue
 
-            # Se encontrar o primeiro marcador de sincronismo
             if b1 == b'\xAA':
-                # Confere os próximos 3 bytes em sequência rápida
                 b2 = ser.read(1)
                 if b2 == b'\xBB':
                     b3 = ser.read(1)
@@ -44,75 +50,56 @@ def rodar_receptor_lifi():
                         b4 = ser.read(1)
                         if b4 == b'\xDD':
                             
-                            # Cabeçalho 100% validado! Lê os próximos 404 bytes de payload (101 floats)
-                            dados_linha = ser.read(404)
+                            # 1. NOVIDADE: Captura o byte do ID da linha enviado pelo laser
+                            id_byte = ser.read(1)
+                            if len(id_byte) < 1:
+                                continue
+                            line_id = id_byte[0]
                             
-                            if len(dados_linha) < 404:
-                                print(f" └─► [AVISO] Linha {linha_atual + 1} cortada por timeout. Descartando pacote.")
+                            # Filtro de sanidade para ignorar IDs fora do escopo 0-63
+                            if line_id < 0 or line_id >= 64:
                                 continue
                             
-                            # Desempacota os dados binários float (Little-Endian '<')
-                            payload = struct.unpack('<f50f50f', dados_linha)
+                            # 2. Captura os 404 bytes matemáticos da FFT
+                            dados_linha = ser.read(404)
+                            if len(dados_linha) < 404:
+                                print(f"  └─► [DROP] Timeout na leitura da linha {line_id}. Linha perdida.")
+                                continue
                             
+                            # Desempacota e reconstrói via IFFT
+                            payload = struct.unpack('<f50f50f', dados_linha)
                             dc_component = payload[0]
                             amplitudes = np.array(payload[1:51])
                             fases = np.array(payload[51:101])
                             
-                            # --------------------------------------
-                            # RECONSTRUÇÃO DO ESPECTRO DISCRETO (64 PONTOS)
-                            # --------------------------------------
                             fft_reconstruida = np.zeros(64, dtype=complex)
-                            
-                            # Aloca a componente DC no índice 0
                             fft_reconstruida[0] = dc_component
-                            
-                            # Aloca as 50 frequências espaciais (Forma Polar: A * e^(1j * fase))
                             fft_reconstruida[1:51] = amplitudes * np.exp(1j * fases)
-                            
-                            # Aplica a Simetria Hermitiana para preencher as frequências negativas conjugadas
                             fft_reconstruida[51:64] = np.conj(fft_reconstruida[13:0:-1])
                             
-                            # --------------------------------------
-                            # SÍNTESE INVERSA (DOMÍNIO DO ESPAÇO)
-                            # --------------------------------------
-                            # Executa a IFFT para transformar o espectro de volta em linha de pixels
                             sinal_reconstruido = np.fft.ifft(fft_reconstruida)
-                            
-                            # Extrai a parte real, filtra ruídos e limita matematicamente entre 0 e 255
                             linha_pixels = np.real(sinal_reconstruido)
                             linha_pixels = np.clip(linha_pixels, 0, 255).astype(np.uint8)
                             
-                            # Grava a linha decodificada na matriz da imagem final
-                            imagem_reconstruida[linha_atual, :] = linha_pixels
+                            # 3. Alocação direta no índice lido do laser (Garante alinhamento perfeito!)
+                            imagem_reconstruida[line_id, :] = linha_pixels
+                            print(f" -> Atualizado: Linha ID [{line_id:02d}/63]")
                             
-                            # Feedback visual no terminal para você acompanhar a recepção
-                            print(f"[CONTAGEM] -> Linha [{linha_atual + 1:02d}/64] processada e guardada.")
-                            
-                            # Avança o ponteiro da linha
-                            linha_atual += 1
+                            # 4. MODIFICAÇÃO: Atualiza a tela imediatamente linha por linha
+                            cv2.imshow("UFF Li-Fi - Streaming de Fourier", imagem_reconstruida)
+                            cv2.waitKey(1) # Refresh gráfico de 1ms do OpenCV
 
-        # ==================================================
-        # EXIBIÇÃO EM BLOCO DA IMAGEM COMPLETA
-        # ==================================================
-        print("\n==================================================")
-        print("   [SUCESSO] Todas as 64 linhas foram coletadas!  ")
-        print("==================================================")
-        print("Renderizando o frame completo do Vaspinho...")
-        
-        # Configura a janela gráfica expandida do OpenCV
-        cv2.namedWindow("UFF Li-Fi - Vaspinho Reconstruido", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("UFF Li-Fi - Vaspinho Reconstruido", 450, 450)
-        cv2.imshow("UFF Li-Fi - Vaspinho Reconstruido", imagem_reconstruida)
-        
-        print("\n[INFO] Janela aberta! Clique nela e pressione QUALQUER TECLA para encerrar.")
-        cv2.waitKey(0) # Congela a imagem na tela até um comando do teclado
+            # Se fechar a tela no 'X', encerra o script Python
+            if cv2.getWindowProperty("UFF Li-Fi - Streaming de Fourier", cv2.WND_PROP_VISIBLE) < 1:
+                print("\n[INFO] Janela fechada pelo usuário.")
+                break
 
     except KeyboardInterrupt:
-        print("\n[INFO] Execução interrompida manualmente pelo usuário.")
+        print("\n[INFO] Interrupção manual detectada.")
     finally:
         ser.close()
         cv2.destroyAllWindows()
-        print("[INFO] Porta serial fechada com segurança.")
+        print("[INFO] Conexão encerrada e recursos liberados.")
 
 if __name__ == "__main__":
-    rodar_receptor_lifi()
+    rodar_receptor_lifi_streaming()
