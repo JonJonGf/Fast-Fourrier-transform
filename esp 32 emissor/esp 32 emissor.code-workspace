@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": ".."
+		},
+		{
+			"name": "esp 32 receptor",
+			"path": "../esp 32 receptor"
+		}
+	],
+	"settings": {}
+}

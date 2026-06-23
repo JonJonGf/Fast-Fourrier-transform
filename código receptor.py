@@ -6,7 +6,7 @@ import serial
 # ==========================================
 # CONFIGURAÇÕES DO PROJETO RECEPTOR
 # ==========================================
-PORTA_COM = "COM4"  # Mude para a porta COM do seu ESP32 RECEPTOR (ex: COM4, COM5)
+PORTA_COM = "COM21"  # Mude para a porta COM do seu ESP32 RECEPTOR (ex: COM4, COM5)
 BAUD_RATE = 115200
 
 def rodar_receptor_lifi():
