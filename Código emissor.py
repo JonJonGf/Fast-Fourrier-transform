@@ -9,7 +9,7 @@ import os
 # CONFIGURAÇÕES DA BANCADA TRANSMISSORA
 # ==========================================
 PORTA_COM = "COM3"  # Mude para a porta COM do seu ESP32 EMISSOR
-BAUD_RATE = 9600     # Casado em 9600 baud para máxima imunidade a ruído RC
+BAUD_RATE = 57600     # Casado em 57600 baud para máxima imunidade a ruído RC
 BIN_PATH = "dados_fourier.bin"
 
 def rodar_emissor_lifi():
@@ -82,7 +82,7 @@ def rodar_emissor_lifi():
             
             # Cadência calculada: 409 bytes a 9600 baud demoram ~426ms para transmitir.
             # O sleep de 450ms garante o esvaziamento total do buffer antes do próximo bloco.
-            time.sleep(0.45)
+            time.sleep(0.08)
             
             # Printa o progresso no terminal do transmissor a cada 10 linhas
             if (i + 1) % 10 == 0 or i == 63:

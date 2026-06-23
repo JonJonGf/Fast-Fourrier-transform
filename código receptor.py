@@ -4,51 +4,45 @@ import struct
 import serial
 
 # ==========================================
-# CONFIGURAÇÕES DO PROJETO RECEPTOR (9600 BAUD)
+# CONFIGURAÇÕES DO PROJETO RECEPTOR (57600 BAUD)
 # ==========================================
-PORTA_COM = "COM4"  # Certifique-se de usar a sua porta COM correta
-BAUD_RATE = 9600     
+PORTA_COM = "COM4"  # Confirme a sua porta COM ativa
+BAUD_RATE = 57600     
 
-def rodar_receptor_lifi_live():
+def rodar_receptor_lifi_bloco_id():
     try:
-        # Timeout longo para monitorar o fluxo cadenciado
-        ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=3.0)
+        # Timeout em 2.0 segundos monitora o fim da rajada do laser
+        ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2.0)
         print("==================================================")
-        print("   UFF Li-Fi - STREAMING DE FOURIER AO VIVO       ")
+        print("   UFF Li-Fi RECEPTOR - SÍNTESE INVERSA EM BLOCO ")
         print("==================================================")
         print(f"[OK] Conectado na porta {PORTA_COM} a {BAUD_RATE} baud.")
         
-        # Limpa o lixo elétrico gerado durante o alinhamento
+        # Garante buffer zerado após o tempo de alinhamento
         ser.reset_input_buffer()
-        print("[INFO] Pronto para o show. Dispare o Transmissor!")
+        print("[INFO] Buffer zerado. Aguardando rajada de pacotes...\n")
     except Exception as e:
         print(f"[ERRO] Não foi possível abrir a porta {PORTA_COM}: {e}")
         return
 
-    # Inicializa a matriz preta 64x64
+    # Cria a matriz preta 64x64. Linhas não recebidas permanecerão pretas
     imagem_reconstruida = np.zeros((64, 64), dtype=np.uint8)
     lines_captured = set()
 
-    # Configura e abre a janela do OpenCV ANTES de começar a receber
-    cv2.namedWindow("UFF Li-Fi - Vaspinho ao Vivo", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("UFF Li-Fi - Vaspinho ao Vivo", 450, 450)
-    
-    # Plota a tela preta inicial
-    cv2.imshow("UFF Li-Fi - Vaspinho ao Vivo", imagem_reconstruida)
-    cv2.waitKey(1)
-
     try:
+        # Coleta silenciosa até juntar as 64 linhas únicas na memória
         while len(lines_captured) < 64:
             b1 = ser.read(1)
             
-            # Se der timeout geral (rajada acabou)
+            # Se der timeout (laser terminou de enviar ou o feixe caiu)
             if not b1:
                 if len(lines_captured) > 0:
-                    print("\n\n[INFO] Fim da rajada do laser detectada.")
+                    print("\n[TIMEOUT] Transmissão óptica interrompida ou encerrada.")
+                    print(f"[INFO] Rendimento final do link: {len(lines_captured)}/64 linhas salvas.")
                     break
                 continue
 
-            # Caçador de cabeçalho
+            # Caçador de cabeçalho mágico de sincronismo
             if b1 == b'\xAA':
                 b2 = ser.read(1)
                 if b2 == b'\xBB':
@@ -57,18 +51,22 @@ def rodar_receptor_lifi_live():
                         b4 = ser.read(1)
                         if b4 == b'\xDD':
                             
-                            # 1. Captura o ID da linha
+                            # 1. Extrai o ID da linha direto do protocolo óptico
                             id_byte = ser.read(1)
                             if len(id_byte) < 1:
                                 continue
                             line_id = id_byte[0]
                             
+                            # Filtro contra estouro de índice por ruído
                             if line_id < 0 or line_id >= 64:
                                 continue
                             
-                            # 2. Captura os 404 bytes matemáticos
+                            # 2. Coleta os 404 bytes matemáticos da linha
                             dados_linha = ser.read(404)
+                            
+                            # Validação do tamanho do payload
                             if len(dados_linha) < 404:
+                                print(f" -> [DROP] ID {line_id} incompleto na USB. Descartando.")
                                 continue
                             
                             # 3. Processamento matemático da IFFT
@@ -85,38 +83,39 @@ def rodar_receptor_lifi_live():
                             sinal_reconstruido = np.fft.ifft(fft_reconstruida)
                             linha_pixels = np.real(sinal_reconstruido)
                             
+                            # Filtro protetor contra desalinhamento de bytes (efeito NaNs)
                             if np.isnan(linha_pixels).any() or np.isinf(linha_pixels).any():
                                 continue
                             
                             linha_pixels = np.clip(linha_pixels, 0, 255).astype(np.uint8)
                             
-                            # 4. Injeta a linha na matriz
-                            imagem_reconstruida[line_id, :] = linha_pixels
+                            # 4. Grava na posição exata do ID
+                            imagem_reconstruida[line_id, :] = pointer = linha_pixels
                             lines_captured.add(line_id)
                             
-                            # 5. ATUALIZAÇÃO EM TEMPO REAL EXTRA LEVE
-                            # Exibe a matriz atualizada na janela ja aberta
-                            cv2.imshow("UFF Li-Fi - Vaspinho ao Vivo", imagem_reconstruida)
-                            
-                            # O waitKey(10) dá 10 milissegundos para o Windows processar os pixels na tela
-                            # Isso impede o congelamento da interface gráfica!
-                            cv2.waitKey(10)
-                            
-                            # Log no terminal para acompanhamento
-                            print(f" -> Atualizando ao vivo: [{len(lines_captured)}/64] | Linha ID: {line_id:02d}", end="\r")
+                            # Atualização leve de texto em linha única (sem pesar o processador)
+                            print(f" -> Coletando: [{len(lines_captured)}/64] | Último ID válido: {line_id:02d}", end="\r")
 
+        # ==================================================
+        # RENDERIZAÇÃO EM BLOCO DA IMAGEM COMPLETA
+        # ==================================================
         print("\n\n==================================================")
-        print("   [FINALIZADO] Streaming concluído com sucesso!  ")
+        print("   [PROCESSO CONCLUÍDO] Abrindo Janela do Vaspinho")
         print("==================================================")
-        print("[INFO] Imagem congelada na tela. Pressione qualquer tecla na janela para fechar.")
+
+        cv2.namedWindow("UFF Li-Fi - Vaspinho Indexado", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("UFF Li-Fi - Vaspinho Indexado", 450, 450)
+        cv2.imshow("UFF Li-Fi - Vaspinho Indexado", imagem_reconstruida)
+        
+        print("[INFO] Janela aberta com sucesso! Foque nela e aperte qualquer tecla para fechar.")
         cv2.waitKey(0)
 
     except KeyboardInterrupt:
-        print("\n[INFO] Streaming interrompido manualmente.")
+        print("\n[INFO] Interrupção manual detectada.")
     finally:
         ser.close()
         cv2.destroyAllWindows()
-        print("[INFO] Recursos liberados.")
+        print("[INFO] Porta serial e janelas fechadas.")
 
 if __name__ == "__main__":
-    rodar_receptor_lifi_live()
+    rodar_receptor_lifi_bloco_id()

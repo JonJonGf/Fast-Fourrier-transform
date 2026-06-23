@@ -9,24 +9,24 @@
 #define RX_DUMMY_PIN 16  
 
 void setup() {
-  // Configura a USB com o PC 1 para 9600 baud
-  Serial.begin(9600);
+  // Configura a USB com o PC 1 para 57600 baud
+  Serial.begin(57600);
   
   pinMode(TX_LASER_PIN, OUTPUT);
   
   // MODO ALINHAMENTO: Laser aceso por 5 segundos para mirar
   digitalWrite(TX_LASER_PIN, HIGH); 
   Serial.println("==================================================");
-  Serial.println("  [EMISSOR 9600] MODO ALINHAMENTO: LASER ACESO (5s)");
+  Serial.println("  [EMISSOR 57600] MODO ALINHAMENTO: LASER ACESO (5s)");
   Serial.println("==================================================");
   delay(5000); 
   
   // Apaga o laser e passa o controle para o hardware da Serial2
   digitalWrite(TX_LASER_PIN, LOW); 
   
-  // Inicializa a linha óptica em 9600 baud com lógica invertida (true)
-  Serial2.begin(9600, SERIAL_8N1, RX_DUMMY_PIN, TX_LASER_PIN, true);
-  Serial.println("[OK] Transmissão ativa a 9600 baud. Laser em espera...");
+  // Inicializa a linha óptica em 57600 baud com lógica invertida (true)
+  Serial2.begin(57600, SERIAL_8N1, RX_DUMMY_PIN, TX_LASER_PIN, true);
+  Serial.println("[OK] Transmissão ativa a 57600 baud. Laser em espera...");
   Serial.println("==================================================");
 }
 
