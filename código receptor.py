@@ -4,99 +4,115 @@ import struct
 import serial
 
 # ==========================================
-# CONFIGURAÇÕES DO PROJETO RECEPTOR
+# CONFIGURAÇÕES DO PROJETO RECEPTOR (9600 BAUD)
 # ==========================================
-PORTA_COM = "COM21"  # Mude para a porta COM do seu ESP32 RECEPTOR
-BAUD_RATE = 9600     # CALIBRADO PARA 9600 BAUD
+PORTA_COM = "COM21"  # Confirme a porta COM do seu ESP32 Receptor
+BAUD_RATE = 9600     # Casado perfeitamente com os ESPs
 
-def rodar_receptor_lifi_silencioso():
+def rodar_receptor_lifi():
     try:
-        # TIMEOUT EM 2.0 SEGUNDOS: Essencial para a velocidade de 9600 baud
+        # TIMEOUT EM 2.0 SEGUNDOS: Essencial para a velocidade de 9600 baud.
+        # Uma linha de 408 bytes demora cerca de 425 milissegundos para cruzar o laser!
         ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2.0)
-        print(f"Conectado ao ESP Receptor na porta {PORTA_COM} a 9600 baud.")
-        print("Aguardando pacotes... O terminal só responderá ao sinal do laser.\n")
+        print("==================================================")
+        print("   UFF Li-Fi RECEPTOR - SÍNTESE INVERSA DE FOURIER")
+        print("==================================================")
+        print(f"[OK] Conectado na porta {PORTA_COM} a {BAUD_RATE} baud.")
+        print("[INFO] Aguardando os pulsos do laser para iniciar a captura...\n")
     except Exception as e:
-        print(f"Erro ao abrir a porta serial {PORTA_COM}: {e}")
+        print(f"[ERRO] Não foi possível abrir a porta {PORTA_COM}: {e}")
         return
 
-    # Buffer de imagem na RAM
+    # Matriz na memória RAM que vai acumular as 64 linhas da imagem (64x64 pixels)
     imagem_reconstruida = np.zeros((64, 64), dtype=np.uint8)
     linha_atual = 0
 
     try:
         while linha_atual < 64:
-            # Escuta o primeiro byte
+            # Lê o primeiro byte do fluxo buscando o início do cabeçalho
             b1 = ser.read(1)
             if not b1:
-                continue # Fica em standby silencioso
+                continue  # Standby silencioso caso o laser pare de transmitir temporariamente
 
-            # Se detectar o início do cabeçalho mágico
+            # Se encontrar o primeiro marcador de sincronismo
             if b1 == b'\xAA':
-                # Só acusa atividade no terminal quando o sincronismo começar
-                print(f"[SINAL] Captado início da linha [{linha_atual + 1}/64]. Sincronizando...", end="")
-                
+                # Confere os próximos 3 bytes em sequência rápida
                 b2 = ser.read(1)
                 if b2 == b'\xBB':
                     b3 = ser.read(1)
                     if b3 == b'\xCC':
                         b4 = ser.read(1)
                         if b4 == b'\xDD':
-                            print(" [OK]")
                             
-                            # Força a leitura dos 404 bytes lentos da FFT
+                            # Cabeçalho 100% validado! Lê os próximos 404 bytes de payload (101 floats)
                             dados_linha = ser.read(404)
+                            
                             if len(dados_linha) < 404:
-                                print(f"  └─► [ERRO] Timeout! Vieram apenas {len(dados_linha)} bytes. Linha descartada.")
+                                print(f" └─► [AVISO] Linha {linha_atual + 1} cortada por timeout. Descartando pacote.")
                                 continue
                             
-                            # Desempacota o payload binário
+                            # Desempacota os dados binários float (Little-Endian '<')
                             payload = struct.unpack('<f50f50f', dados_linha)
+                            
                             dc_component = payload[0]
                             amplitudes = np.array(payload[1:51])
                             fases = np.array(payload[51:101])
                             
-                            # Reconstrução com simetria hermitiana
+                            # --------------------------------------
+                            # RECONSTRUÇÃO DO ESPECTRO DISCRETO (64 PONTOS)
+                            # --------------------------------------
                             fft_reconstruida = np.zeros(64, dtype=complex)
+                            
+                            # Aloca a componente DC no índice 0
                             fft_reconstruida[0] = dc_component
+                            
+                            # Aloca as 50 frequências espaciais (Forma Polar: A * e^(1j * fase))
                             fft_reconstruida[1:51] = amplitudes * np.exp(1j * fases)
+                            
+                            # Aplica a Simetria Hermitiana para preencher as frequências negativas conjugadas
                             fft_reconstruida[51:64] = np.conj(fft_reconstruida[13:0:-1])
                             
-                            # Processa a IFFT para voltar ao domínio do espaço (pixels)
+                            # --------------------------------------
+                            # SÍNTESE INVERSA (DOMÍNIO DO ESPAÇO)
+                            # --------------------------------------
+                            # Executa a IFFT para transformar o espectro de volta em linha de pixels
                             sinal_reconstruido = np.fft.ifft(fft_reconstruida)
+                            
+                            # Extrai a parte real, filtra ruídos e limita matematicamente entre 0 e 255
                             linha_pixels = np.real(sinal_reconstruido)
                             linha_pixels = np.clip(linha_pixels, 0, 255).astype(np.uint8)
                             
-                            # Guarda temporariamente na matriz da imagem
+                            # Grava a linha decodificada na matriz da imagem final
                             imagem_reconstruida[linha_atual, :] = linha_pixels
+                            
+                            # Feedback visual no terminal para você acompanhar a recepção
+                            print(f"[CONTAGEM] -> Linha [{linha_atual + 1:02d}/64] processada e guardada.")
+                            
+                            # Avança o ponteiro da linha
                             linha_atual += 1
-                        else:
-                            print(f" [FALHOU] Byte 4 incorreto: {b4.hex()}")
-                    else:
-                        print(f" [FALHOU] Byte 3 incorreto: {b3.hex()}")
-                else:
-                    print(f" [FALHOU] Byte 2 incorreto: {b2.hex()}")
 
         # ==================================================
-        # EXIBIÇÃO EM BLOCO DA IMAGEM FINAL
+        # EXIBIÇÃO EM BLOCO DA IMAGEM COMPLETA
         # ==================================================
         print("\n==================================================")
-        print("   [FINALIZADO] Todas as 64 linhas na memória!    ")
+        print("   [SUCESSO] Todas as 64 linhas foram coletadas!  ")
         print("==================================================")
-        print("Abrindo janela gráfica do Vaspinho...")
+        print("Renderizando o frame completo do Vaspinho...")
         
-        cv2.namedWindow("UFF Li-Fi - Imagem Final Reconstruida", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("UFF Li-Fi - Imagem Final Reconstruida", 450, 450)
-        cv2.imshow("UFF Li-Fi - Imagem Final Reconstruida", imagem_reconstruida)
+        # Configura a janela gráfica expandida do OpenCV
+        cv2.namedWindow("UFF Li-Fi - Vaspinho Reconstruido", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("UFF Li-Fi - Vaspinho Reconstruido", 450, 450)
+        cv2.imshow("UFF Li-Fi - Vaspinho Reconstruido", imagem_reconstruida)
         
-        print("[DICA] Clique na janela da imagem e aperte qualquer tecla para encerrar.")
-        cv2.waitKey(0) # Congela a imagem na tela até uma tecla ser pressionada
+        print("\n[INFO] Janela aberta! Clique nela e pressione QUALQUER TECLA para encerrar.")
+        cv2.waitKey(0) # Congela a imagem na tela até um comando do teclado
 
     except KeyboardInterrupt:
-        print("\nInterrupção manual.")
+        print("\n[INFO] Execução interrompida manualmente pelo usuário.")
     finally:
         ser.close()
         cv2.destroyAllWindows()
-        print("Porta serial fechada com segurança.")
+        print("[INFO] Porta serial fechada com segurança.")
 
 if __name__ == "__main__":
-    rodar_receptor_lifi_silencioso()
+    rodar_receptor_lifi()
