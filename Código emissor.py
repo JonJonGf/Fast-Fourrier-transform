@@ -5,15 +5,11 @@ import time
 import serial
 import os
 
-# ==========================================
-# CONFIGURAÇÕES DA BANCADA TRANSMISSORA
-# ==========================================
-PORTA_COM = "COM3"  # Mude para a porta COM do seu ESP32 EMISSOR
-BAUD_RATE = 19200     # Casado em 19200 baud para máxima imunidade a ruído RC
+PORTA_COM = "COM3"  # Confirme a sua porta COM ativa
+BAUD_RATE = 9600     
 BIN_PATH = "dados_fourier.bin"
 
 def rodar_emissor_lifi():
-    # Ajusta o caminho dinâmico para carregar a imagem na pasta correta do VS Code
     diretorio_do_script = os.path.dirname(os.path.abspath(__file__))
     caminho_da_imagem = os.path.join(diretorio_do_script, "imagens", "vaspinho.png")
 
@@ -24,7 +20,6 @@ def rodar_emissor_lifi():
         print(f"[ERRO CRÍTICO] Não encontrei a imagem em '{caminho_da_imagem}'")
         return
 
-    # Força a imagem a ter exatamente os 64x64 pixels do projeto
     img_resized = cv2.resize(img, (64, 64))
     buffer_total = bytearray()
     sync_bytes = bytes([0xAA, 0xBB, 0xCC, 0xDD])
@@ -34,59 +29,42 @@ def rodar_emissor_lifi():
         linha = img_resized[i, :]
         fft_linha = np.fft.fft(linha)
         
-        # Componente DC (k=0) - Parte real pura (1 float = 4 bytes)
         dc_component = float(np.real(fft_linha[0]))
-        
-        # Coleta as 50 frequências espaciais positivas (50 amplitudes + 50 fases = 100 floats)
         amplitudes = np.abs(fft_linha[1:51]).astype(np.float32)
         fases = np.angle(fft_linha[1:51]).astype(np.float32)
         
-        # Empacota o payload em binário puro (101 floats = 404 bytes)
         dados_sinal = struct.pack('<f50f50f', dc_component, *amplitudes, *fases)
         
-        # -------------------------------------------------------------------------
-        # PROTOCOLO INDEXADO (409 BYTES):
-        # Sync (4B) + ID da Linha (1B) + Dados Matemáticos (404B) = 409 Bytes/linha
-        # -------------------------------------------------------------------------
         line_id_byte = bytes([i])
         frame_linha = sync_bytes + line_id_byte + dados_sinal
         buffer_total.extend(frame_linha)
 
-    # Salva uma cópia em arquivo binário local para auditoria se necessário
-    caminho_bin = os.path.join(diretorio_do_script, BIN_PATH)
-    with open(caminho_bin, "wb") as f:
-        f.write(buffer_total)
-    print(f"[OK] Arquivo binário gerado com sucesso: '{caminho_bin}' ({len(buffer_total)} bytes)")
-
-    # Inicia o processo de transmissão via Laser
     try:
         print(f"[USB] Abrindo conexão com o ESP32 Emissor na porta {PORTA_COM}...")
         ser = serial.Serial(PORTA_COM, BAUD_RATE, timeout=2)
-        time.sleep(10) # Aguarda o reset de boot automático da placa
+        
+        print("[BOOT] Aguardando 10 segundos para estabilização do hardware...")
+        time.sleep(10) 
         
         print("\n==================================================")
         print("      INICIANDO TRANSMISSÃO ÓPTICA (9600 BAUD)    ")
         print("==================================================")
-        print("-> Enviando pacotes indexados com segurança de buffer.")
         start_time = time.time()
         
-        tamanho_linha = 409  # Ajustado para os 409 bytes do novo cabeçalho
+        tamanho_linha = 409  
         for i in range(64):
             inicio = i * tamanho_linha
             fim = inicio + tamanho_linha
             fatia_linha = buffer_total[inicio:fim]
             
-            # Injeta a linha de 409 bytes na porta serial
             ser.write(fatia_linha)
-            ser.flush() # Força o Windows a esvaziar o barramento USB imediatamente
+            ser.flush() 
             
-            # Cadência calculada: 409 bytes a 9600 baud demoram ~426ms para transmitir.
-            # O sleep de 450ms garante o esvaziamento total do buffer antes do próximo bloco.
-            time.sleep(0.23)
+            # Cadência calibrada para 9600 baud
+            time.sleep(0.45)
             
-            # Printa o progresso no terminal do transmissor a cada 10 linhas
             if (i + 1) % 10 == 0 or i == 63:
-                print(f" -> Progresso: Linha [{i + 1:02d}/64] transmitida pelo laser (ID {i:02d}).")
+                print(f" -> Progresso: Linha [{i + 1:02d}/64] transmititada (ID {i:02d}).")
 
         end_time = time.time()
         print("==================================================")
