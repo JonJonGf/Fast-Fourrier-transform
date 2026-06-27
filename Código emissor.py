@@ -5,7 +5,7 @@ import time
 import serial
 import os
 
-PORTA_COM = "COM3"  # Confirme a sua porta COM ativa
+PORTA_COM = "COM21"  # Confirme a sua porta COM ativa
 BAUD_RATE = 9600     
 BIN_PATH = "dados_fourier.bin"
 

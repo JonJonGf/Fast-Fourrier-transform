@@ -4,7 +4,7 @@
 void setup() {
   Serial.begin(9600);
   Serial.setTxBufferSize(4096);
-  pinMode(RECEPTOR_PIN, INPUT_PULLUP);
+  pinMode(RECEPTOR_PIN, INPUT);
   Serial2.begin(9600, SERIAL_8N1, RECEPTOR_PIN, TX_DUMMY_PIN);
   Serial2.setRxBufferSize(4096);
 }
